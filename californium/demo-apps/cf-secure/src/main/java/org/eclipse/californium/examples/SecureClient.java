@@ -12,11 +12,13 @@
  * 
  * Contributors:
  *    Matthias Kovatsch - creator and main architect
+ *	  Anthony Carno - modified for research purposes
  ******************************************************************************/
 package org.eclipse.californium.examples;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -28,26 +30,29 @@ import java.util.logging.Level;
 
 import org.eclipse.californium.core.CoapClient;
 import org.eclipse.californium.core.CoapResponse;
-import org.eclipse.californium.core.Utils;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.config.NetworkConfig;
 import org.eclipse.californium.scandium.DTLSConnector;
-import org.eclipse.californium.scandium.ScandiumLogger;
 import org.eclipse.californium.scandium.config.DtlsConnectorConfig;
+import org.eclipse.californium.scandium.dtls.cipher.CipherSuite;
+import org.eclipse.californium.scandium.dtls.cipher.CipherSuite.KeyExchangeAlgorithm;
 import org.eclipse.californium.scandium.dtls.pskstore.StaticPskStore;
+import org.eclipse.californium.scandium.ScandiumLogger;
 
 public class SecureClient {
+	
+	private static final int COAP_PORT = NetworkConfig.getStandard().getInt(NetworkConfig.Keys.COAP_PORT);
 
-	static {
-		ScandiumLogger.initialize();
-		ScandiumLogger.setLevel(Level.FINE);
-	}
 
 	private static final String TRUST_STORE_PASSWORD = "rootPass";
 	private static final String KEY_STORE_PASSWORD = "endPass";
 	private static final String KEY_STORE_LOCATION = "certs/keyStore.jks";
 	private static final String TRUST_STORE_LOCATION = "certs/trustStore.jks";
-	private static final String SERVER_URI = "coaps://localhost/secure";
+
+	//Secure URI
+	private static final String SERVER_URI = "coaps://10.1.1.181/secure";
+	//Unsecure URI
+	private static final String USERVER_URI = "coap://10.1.1.181/secure";
 
 	private DTLSConnector dtlsConnector;
 
@@ -70,9 +75,16 @@ public class SecureClient {
 			trustedCertificates[0] = trustStore.getCertificate("root");
 
 			DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder(new InetSocketAddress(0));
-			builder.setPskStore(new StaticPskStore("Client_identity", "secretPSK".getBytes()));
-			builder.setIdentity((PrivateKey)keyStore.getKey("client", KEY_STORE_PASSWORD.toCharArray()),
-					keyStore.getCertificateChain("client"), true);
+
+			/* Set simple pre-shared key.
+			   Note that this is the simplest means of using DTLS. More complex
+			   methods involve the use of public key infrastructure or
+			   certificates. We would like to explore these as future work.
+			*/
+			builder.setPskStore(new StaticPskStore("password", "sesame".getBytes()));
+
+			builder.setSupportedCipherSuites(new CipherSuite[]{CipherSuite.TLS_PSK_WITH_AES_128_CCM_8, CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8});
+			builder.setIdentity((PrivateKey)keyStore.getKey("client", KEY_STORE_PASSWORD.toCharArray()), keyStore.getCertificateChain("client"), true);
 			builder.setTrustStore(trustedCertificates);
 			dtlsConnector = new DTLSConnector(builder.build());
 
@@ -82,15 +94,29 @@ public class SecureClient {
 		}
 	}
 
-	public void test() {
+	public void test(boolean encrypt) {
 
 		CoapResponse response = null;
 		try {
-			URI uri = new URI(SERVER_URI);
+			URI uri = null;
+			if (encrypt) {
+				uri = new URI(SERVER_URI);
+			} else {
+				uri = new URI(USERVER_URI);
+			}
 
 			CoapClient client = new CoapClient(uri);
-			client.setEndpoint(new CoapEndpoint(dtlsConnector, NetworkConfig.getStandard()));
+			if (encrypt) {
+				client.setEndpoint(new CoapEndpoint(dtlsConnector, NetworkConfig.getStandard()));
+			} 
+
+			client.setTimeout(0);
+			System.out.println("Sending GET request.");			
+			long start = System.nanoTime();
 			response = client.get();
+			long end = System.nanoTime();
+			System.out.println((float)(end-start)/1000000000);
+
 
 		} catch (URISyntaxException e) {
 			System.err.println("Invalid URI: " + e.getMessage());
@@ -98,13 +124,13 @@ public class SecureClient {
 		}
 
 		if (response != null) {
-
-			System.out.println(response.getCode());
-			System.out.println(response.getOptions());
-			System.out.println(response.getResponseText());
-
-			System.out.println("\nADVANCED\n");
-			System.out.println(Utils.prettyPrint(response));
+			try{
+			    PrintWriter writer = new PrintWriter("secure-book.txt", "ASCII");
+			    writer.print(response.getResponseText());
+			    writer.close();
+			} catch (Exception e) {
+			   // do something
+			}
 
 		} else {
 			System.out.println("No response received.");
@@ -113,9 +139,19 @@ public class SecureClient {
 
 	public static void main(String[] args) throws InterruptedException {
 
-		SecureClient client = new SecureClient();
-		client.test();
+		/* Check for a simple flag to turn on DTLS.
+		   This allows us to use the same script for testing with and without
+		   encryption. Doing so ensures that we eliminate other sources of 
+		   variance in the timing measurements.
+		*/
+		boolean encrypt = false;
+		if ((args.length > 0) && args[0].equals("--encrypt")) {
+			encrypt = true;
+		}
 
+		SecureClient client = new SecureClient();
+		client.test(encrypt);
+		
 		synchronized (SecureClient.class) {
 			SecureClient.class.wait();
 		}

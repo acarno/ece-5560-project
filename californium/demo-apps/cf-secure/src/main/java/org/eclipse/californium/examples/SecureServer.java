@@ -17,6 +17,8 @@ package org.eclipse.californium.examples;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
@@ -25,11 +27,11 @@ import java.security.cert.Certificate;
 import java.util.logging.Level;
 
 import org.eclipse.californium.core.CaliforniumLogger;
-import org.eclipse.californium.core.CoapResource;
 import org.eclipse.californium.core.CoapServer;
 import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.Endpoint;
+import org.eclipse.californium.core.network.EndpointManager;
 import org.eclipse.californium.core.network.config.NetworkConfig;
 import org.eclipse.californium.core.network.interceptors.MessageTracer;
 import org.eclipse.californium.core.server.resources.CoapExchange;
@@ -37,19 +39,14 @@ import org.eclipse.californium.scandium.DTLSConnector;
 import org.eclipse.californium.scandium.ScandiumLogger;
 import org.eclipse.californium.scandium.config.DtlsConnectorConfig;
 import org.eclipse.californium.scandium.dtls.cipher.CipherSuite;
+import org.eclipse.californium.scandium.dtls.cipher.CipherSuite.KeyExchangeAlgorithm;
 import org.eclipse.californium.scandium.dtls.pskstore.InMemoryPskStore;
 
 
 public class SecureServer {
 
-	static {
-		CaliforniumLogger.initialize();
-		CaliforniumLogger.setLevel(Level.CONFIG);
-		ScandiumLogger.initialize();
-		ScandiumLogger.setLevel(Level.FINER);
-	}
-
 	// allows configuration via Californium.properties
+	private static final int COAP_PORT = NetworkConfig.getStandard().getInt(NetworkConfig.Keys.COAP_PORT);
 	public static final int DTLS_PORT = NetworkConfig.getStandard().getInt(NetworkConfig.Keys.COAP_SECURE_PORT);
 
 	private static final String TRUST_STORE_PASSWORD = "rootPass";
@@ -57,23 +54,42 @@ public class SecureServer {
 	private static final String KEY_STORE_LOCATION = "certs/keyStore.jks";
 	private static final String TRUST_STORE_LOCATION = "certs/trustStore.jks";
 
-	public static void main(String[] args) {
+	public static void main(String[] args) {	
+
+		/* Check for a simple flag to turn on DTLS.
+		   This allows us to use the same script for testing with and without
+		   encryption. Doing so ensures that we eliminate other sources of 
+		   variance in the timing measurements.
+		*/
+		boolean encrypt = false;
+		if ((args.length > 0) && args[0].equals("--encrypt")) {
+			encrypt = true;	
+		}	
+		
 
 		CoapServer server = new CoapServer();
-		server.add(new CoapResource("secure") {
+		/* Add resource to CoAP server.
+		   This represents the addition of a new resource to the server. This
+		   particular resource is designed such that upon instantiation, it
+		   reads the contents of the book "Flatland" into memory. This is what
+		   is sent upon a "GET" request from a CoAP client. Note that segmenting
+		   the book text into multiple messages happens within the Californium
+		   library.
+		*/
+		server.add(new MyCoapResource("secure") {
 			@Override
 			public void handleGET(CoapExchange exchange) {
-				exchange.respond(ResponseCode.CONTENT, "hello security");
+				long start = System.nanoTime();
+				exchange.respond(ResponseCode.CONTENT, bookText);
+				long end = System.nanoTime();
+				System.out.println((float)(end - start)/1000000000);
 			}
 		});
-		// ETSI Plugtest environment
-		// server.addEndpoint(new CoAPEndpoint(new DTLSConnector(new InetSocketAddress("::1", DTLS_PORT)), NetworkConfig.getStandard()));
-		// server.addEndpoint(new CoAPEndpoint(new DTLSConnector(new InetSocketAddress("127.0.0.1", DTLS_PORT)), NetworkConfig.getStandard()));
-		// server.addEndpoint(new CoAPEndpoint(new DTLSConnector(new InetSocketAddress("2a01:c911:0:2010::10", DTLS_PORT)), NetworkConfig.getStandard()));
-		// server.addEndpoint(new CoAPEndpoint(new DTLSConnector(new InetSocketAddress("10.200.1.2", DTLS_PORT)), NetworkConfig.getStandard()));
 
 		try {
 			// Pre-shared secrets
+			/* These are used first, before the public key infrastructure or 
+			   certificates are attempted. */
 			InMemoryPskStore pskStore = new InMemoryPskStore();
 			pskStore.setKey("password", "sesame".getBytes()); // from ETSI Plugtest test spec
 
@@ -100,8 +116,12 @@ public class SecureServer {
 			config.setTrustStore(trustedCertificates);
 
 			DTLSConnector connector = new DTLSConnector(config.build());
+			if (encrypt) {
+				server.addEndpoint(new CoapEndpoint(connector, NetworkConfig.getStandard()));
+			} else {
+				server.addEndpoint(new CoapEndpoint(new InetSocketAddress("10.1.1.181", COAP_PORT), NetworkConfig.getStandard()));
+			}
 
-			server.addEndpoint(new CoapEndpoint(connector, NetworkConfig.getStandard()));
 			server.start();
 
 		} catch (GeneralSecurityException | IOException e) {
@@ -109,12 +129,6 @@ public class SecureServer {
 			e.printStackTrace();
 		}
 
-		// add special interceptor for message traces
-		for (Endpoint ep : server.getEndpoints()) {
-			ep.addInterceptor(new MessageTracer());
-		}
-
-		System.out.println("Secure CoAP server powered by Scandium (Sc) is listening on port " + DTLS_PORT);
 	}
 
 }
