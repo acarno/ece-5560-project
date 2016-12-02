@@ -125,3 +125,92 @@ This file contains the test payload for our experiments. On construction, the
 receives a GET request for this resource, the text is returned. On the server
 side, we time this response (though we do not use this data in our report, 
 as the server was run on our secondary platform).
+
+## MQTT Code
+
+We utilized the [Eclipse Paho](http://www.eclipse.org/paho/) and 
+[Mosquitto](http://mosquitto.org/) projects for our MQTT tests. Both of these
+will need to be installed (in addition to Python 2.x) to run our MQTT code. We
+also used the [PyCrypto](https://www.dlitz.net/software/pycrypto/) 
+library for manual AES encryption.
+
+The MQTT code consists primarily of two scripts that we wrote:
+
+[SecurePub.py](https://github.com/acarno/ece-5560-project/blob/905a36aa90f8db9200d2374d2bca3b859c1e6a57/paho/SecurePub.py)
+and
+[SecureSub.py](https://github.com/acarno/ece-5560-project/blob/905a36aa90f8db9200d2374d2bca3b859c1e6a57/paho/SecureSub.py)
+
+We also manually generated test certificates and configured the broker to use
+these as needed (see the additional files in the `Paho` folder).
+
+### SecurePub.py
+
+This file contains the code for the publisher in our setup (note: we based our
+data in our report on the publisher running on the test platform).
+
+The first feature to note is the [`MyClient`](https://github.com/acarno/ece-5560-project/blob/905a36aa90f8db9200d2374d2bca3b859c1e6a57/paho/SecurePub.py#L24) 
+class. The only change we make here to the default MQTT client class is in
+the `onPublish` method, which is called after a message has successfully been
+transmitted to the broker. As we wanted to time the difference between sending
+a message with and without encryption, this was a logical function to use as the
+termination of our timing code. 
+
+```python
+class MyClient(mqtt.Client):
+    ''' Subclass of Paho MQTT client '''
+    
+    def on_publish(self, client, userdata, mid):
+        ''' This function is called *after* a message has been successfully
+            transmitted. We use this as our indication of when to finish timing
+            the client's publish command. '''
+
+        global end_time
+
+        end_time = time.time()
+        self.disconnect()
+```
+
+Next, moving to the `main` function, we see the bulk of the program logic. 
+First, we set up TLS  on [line 44](https://github.com/acarno/ece-5560-project/blob/905a36aa90f8db9200d2374d2bca3b859c1e6a57/paho/SecurePub.py#L43)
+if the approriate flag is set on the command line:
+
+```python
+if args.tls:
+    client.tls_set("./ca.crt")
+    client.connect('10.1.1.181', port=8883)
+else:
+    client.connect('10.1.1.181', port=1883)
+```
+
+We begin timing on [line 53](https://github.com/acarno/ece-5560-project/blob/905a36aa90f8db9200d2374d2bca3b859c1e6a57/paho/SecurePub.py#L53).
+This captures the cost of using no encryption, performing manual encryption,
+or using TLS.
+
+If manual encryption is enabled, we pad the message text appropriately on 
+[line 64](https://github.com/acarno/ece-5560-project/blob/905a36aa90f8db9200d2374d2bca3b859c1e6a57/paho/SecurePub.py#L64)
+and encrypt it using the PyCrypto AES class on [line 65](https://github.com/acarno/ece-5560-project/blob/905a36aa90f8db9200d2374d2bca3b859c1e6a57/paho/SecurePub.py#L65).
+
+```python
+if args.encrypt:
+    obj = AES.new('key123456789abcd', 
+              AES.MODE_CBC, 
+              'Initialization V')
+    blen = len(book)
+    rem = blen % 16
+    # Pad text if necessary
+    if rem != 0:
+        book = ''.join([book, '0'*(16-rem)])
+    sendmsg = obj.encrypt(book)
+```
+
+Finally, we actually publish the message on [line 71](https://github.com/acarno/ece-5560-project/blob/905a36aa90f8db9200d2374d2bca3b859c1e6a57/paho/SecurePub.py#L71):
+
+```python
+client.publish("hello/world", sendmsg)
+```
+
+### SecureSub.py
+
+This file contains the subscriber code. We did not time the subscriber in our 
+report. Please see the comments in the file for more information. In general, 
+though, the subscriber follows the same flow as the publisher - just in reverse.
