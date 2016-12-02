@@ -28,13 +28,11 @@ import java.util.logging.Level;
 
 import org.eclipse.californium.core.CaliforniumLogger;
 import org.eclipse.californium.core.CoapServer;
-import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.network.CoapEndpoint;
 import org.eclipse.californium.core.network.Endpoint;
 import org.eclipse.californium.core.network.EndpointManager;
 import org.eclipse.californium.core.network.config.NetworkConfig;
 import org.eclipse.californium.core.network.interceptors.MessageTracer;
-import org.eclipse.californium.core.server.resources.CoapExchange;
 import org.eclipse.californium.scandium.DTLSConnector;
 import org.eclipse.californium.scandium.ScandiumLogger;
 import org.eclipse.californium.scandium.config.DtlsConnectorConfig;
@@ -76,15 +74,7 @@ public class SecureServer {
 		   the book text into multiple messages happens within the Californium
 		   library.
 		*/
-		server.add(new MyCoapResource("secure") {
-			@Override
-			public void handleGET(CoapExchange exchange) {
-				long start = System.nanoTime();
-				exchange.respond(ResponseCode.CONTENT, bookText);
-				long end = System.nanoTime();
-				System.out.println((float)(end - start)/1000000000);
-			}
-		});
+		server.add(new MyCoapResource("secure");
 
 		try {
 			// Pre-shared secrets

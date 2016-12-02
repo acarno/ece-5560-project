@@ -5,7 +5,11 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 
+import org.eclipse.californium.core.coap.CoAP.ResponseCode;
 import org.eclipse.californium.core.CoapResource;
+import org.eclipse.californium.core.server.resources.CoapExchange;
+
+
 
 public class MyCoapResource extends CoapResource {
 	
@@ -53,7 +57,14 @@ public class MyCoapResource extends CoapResource {
 				bookText = everything;
 			}
 		}
-		
+	}
+
+	@Override
+	public void handleGET(CoapExchange exchange) {
+		long start = System.nanoTime();
+		exchange.respond(ResponseCode.CONTENT, bookText);
+		long end = System.nanoTime();
+		System.out.println((float)(end - start)/1000000000);
 	}
 
 }
